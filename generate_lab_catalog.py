@@ -25,12 +25,12 @@ def parse_frontmatter(content):
     match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
     if match:
         frontmatter = match.group(1)
-        # Extract title and description
-        title_match = re.search(r"title:\s*['\"](.+?)['\"]", frontmatter)
-        desc_match = re.search(r"description:\s*['\"](.+?)['\"]", frontmatter)
+        # Extract title and description (handle both quoted and unquoted values)
+        title_match = re.search(r"title:\s*['\"]?(.+?)['\"]?\s*$", frontmatter, re.MULTILINE)
+        desc_match = re.search(r"description:\s*['\"]?(.+?)['\"]?\s*$", frontmatter, re.MULTILINE)
         
-        title = title_match.group(1) if title_match else ""
-        description = desc_match.group(1) if desc_match else ""
+        title = title_match.group(1).strip().strip("'\"") if title_match else ""
+        description = desc_match.group(1).strip().strip("'\"") if desc_match else ""
         
         return title, description
     
@@ -47,12 +47,23 @@ def parse_frontmatter(content):
             if line.startswith('# '):
                 in_content = True
                 continue
-            if in_content and line.strip() and not line.startswith('#') and not line.startswith('!'):
-                # Found a content line
+            if in_content and line.strip() and not line.startswith('#') and not line.startswith('!['):
+                # Found a content line (skip image links but not blockquotes)
                 desc_lines.append(line.strip())
-                if len(' '.join(desc_lines)) > 100:  # Get enough context
+                full_text = ' '.join(desc_lines)
+                # Stop when we have a complete sentence or reach reasonable length
+                if len(full_text) > 150 and (full_text.endswith('.') or full_text.endswith('!') or full_text.endswith('?')):
                     break
-        description = ' '.join(desc_lines)[:200]  # Limit description length
+                elif len(full_text) > 250:
+                    # If too long without punctuation, truncate at last complete word
+                    full_text = full_text[:250].rsplit(' ', 1)[0]
+                    break
+        
+        description = ' '.join(desc_lines)
+        # Truncate at last complete word if too long
+        if len(description) > 250:
+            description = description[:250].rsplit(' ', 1)[0]
+        
         return title, description
     
     return "", ""
@@ -61,6 +72,38 @@ def parse_frontmatter(content):
 def extract_technologies(content):
     """Extract technologies and products mentioned in the lab content."""
     technologies = set()
+    
+    # Canonical technology names (lowercase keys for matching)
+    canonical_names = {
+        'azure openai': 'Azure OpenAI',
+        'gpt-4o': 'GPT-4o',
+        'gpt-4': 'GPT-4',
+        'foundry': 'Microsoft Foundry',
+        'prompt flow': 'Prompt Flow',
+        'rag': 'RAG',
+        'retrieval augmented generation': 'Retrieval Augmented Generation',
+        'azure ai services': 'Azure AI Services',
+        'azure ai studio': 'Azure AI Studio',
+        'azure ai foundry': 'Azure AI Foundry',
+        'ai hub': 'AI Hub',
+        'python sdk': 'Python SDK',
+        'typescript': 'TypeScript',
+        '.net': '.NET',
+        'fine-tune': 'Fine-tuning',
+        'fine-tuning': 'Fine-tuning',
+        'content filter': 'Content Filters',
+        'content filters': 'Content Filters',
+        'content filtering': 'Content Filters',
+        'evaluation': 'Evaluation',
+        'embedding': 'Embeddings',
+        'embeddings': 'Embeddings',
+        'model catalog': 'Model Catalog',
+        'chat app': 'Chat Application',
+        'chat application': 'Chat Application',
+        'chat playground': 'Chat Playground',
+        'ner': 'NER',
+        'named entity recognition': 'Named Entity Recognition',
+    }
     
     # Common AI/Azure technologies to look for (case-insensitive)
     tech_patterns = [
@@ -78,21 +121,24 @@ def extract_technologies(content):
         r'\bfine-tun(?:e|ing)\b',
         r'\bcontent\s+filter(?:s|ing)?\b',
         r'\bevaluation\b',
-        r'\bembedding\b',
+        r'\bembeddings?\b',
         r'\bmodel\s+catalog\b',
-        r'\bchat\s+(?:app|playground)\b',
+        r'\bchat\s+(?:playground)\b',
+        r'\bchat\s+(?:app|application)\b',
         r'\bNER\b',
         r'\bNamed\s+Entity\s+Recognition\b',
     ]
     
     for pattern in tech_patterns:
         matches = re.findall(pattern, content, re.IGNORECASE)
-        if matches:
-            # Normalize the match
-            technologies.add(matches[0].strip())
+        for match in matches:
+            # Normalize using canonical names
+            match_lower = match.lower().strip()
+            canonical = canonical_names.get(match_lower, match.strip())
+            technologies.add(canonical)
     
     # Return as comma-separated string
-    return ", ".join(sorted(technologies, key=str.lower)) if technologies else "N/A"
+    return ", ".join(sorted(technologies)) if technologies else "N/A"
 
 
 def get_git_info(file_path, repo_root):
@@ -174,7 +220,12 @@ def process_lab_files(repo_root, instructions_dir):
             rel_filename = md_file.relative_to(instructions_path)
             
             # Combine title and description for the description field
-            full_description = f"{title}. {description}" if title and description else (description or title or "N/A")
+            if title and description:
+                # Avoid double punctuation
+                separator = ". " if not title.rstrip().endswith(('.', '!', '?')) else " "
+                full_description = f"{title}{separator}{description}"
+            else:
+                full_description = description or title or "N/A"
             
             labs.append({
                 'filename': str(rel_filename),
