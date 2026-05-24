@@ -20,7 +20,6 @@ async def main():
         model_deployment = os.getenv("MODEL_DEPLOYMENT")
 
         # Initialize an async OpenAI client
-        # Initialize an async OpenAI client
         credential = DefaultAzureCredential()
         token_provider = get_bearer_token_provider(
         credential, "https://ai.azure.com/.default"
@@ -63,7 +62,7 @@ async def main():
         print(ex)
 
     finally:
-        # Close the async client session
+        
         # Close the async client session
         await credential.close()
 
